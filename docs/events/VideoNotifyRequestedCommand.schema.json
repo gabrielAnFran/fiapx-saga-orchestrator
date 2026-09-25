@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fiapx.local/events/VideoNotifyRequestedCommand.schema.json",
+  "title": "VideoNotifyRequestedCommand",
+  "type": "object",
+  "required": ["event_id","event_name","event_version","occurred_at","correlation_id","saga_id","payload"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_name": { "const": "video.notify.requested" },
+    "event_version": { "type": "integer", "minimum": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string" },
+    "saga_id": { "type": "string", "format": "uuid" },
+    "payload": {
+      "type": "object",
+      "required": ["video_id","notification_type","recipient_email"],
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "user_id": { "type": "string", "format": "uuid" },
+        "notification_type": { "enum": ["COMPLETED", "FAILED"] },
+        "recipient_email": { "type": "string", "format": "email" },
+        "original_filename": { "type": "string" },
+        "error_message": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fiapx.local/events/VideoProcessingCompleted.schema.json",
+  "title": "VideoProcessingCompleted",
+  "type": "object",
+  "required": ["event_id","event_name","event_version","occurred_at","correlation_id","payload"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_name": { "const": "video.processing.completed" },
+    "event_version": { "type": "integer", "minimum": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string" },
+    "saga_id": { "type": "string", "format": "uuid" },
+    "payload": {
+      "type": "object",
+      "required": ["video_id","job_id","zip_bucket","zip_object_key","frame_count","completed_at"],
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "job_id": { "type": "string", "format": "uuid" },
+        "zip_bucket": { "type": "string" },
+        "zip_object_key": { "type": "string" },
+        "frame_count": { "type": "integer", "minimum": 0 },
+        "completed_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

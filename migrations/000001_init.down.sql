@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS processed_events;
+DROP TABLE IF EXISTS outbox;
+DROP TABLE IF EXISTS saga_history;
+DROP TABLE IF EXISTS saga_instances;

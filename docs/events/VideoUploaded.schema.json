@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fiapx.local/events/VideoUploaded.schema.json",
+  "title": "VideoUploaded",
+  "type": "object",
+  "required": ["event_id","event_name","event_version","occurred_at","correlation_id","payload"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_name": { "const": "video.uploaded" },
+    "event_version": { "type": "integer", "minimum": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string" },
+    "saga_id": { "type": "string", "format": "uuid" },
+    "payload": {
+      "type": "object",
+      "required": ["video_id","user_id","user_email","source_bucket","source_object_key"],
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "user_id": { "type": "string", "format": "uuid" },
+        "user_email": { "type": "string", "format": "email" },
+        "original_filename": { "type": "string" },
+        "content_type": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "source_bucket": { "type": "string" },
+        "source_object_key": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-dispatcher
+  labels:
+    app: {{ .Release.Name }}-dispatcher
+spec:
+  replicas: {{ .Values.dispatcher.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-dispatcher
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-dispatcher
+    spec:
+      containers:
+        - name: dispatcher
+          image: "{{ .Values.image.repository }}:dispatcher-{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- include "saga-orchestrator.envFrom" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.dispatcher.resources | nindent 12 }}

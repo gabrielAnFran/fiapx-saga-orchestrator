@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-server
+  labels:
+    app: {{ .Release.Name }}-server
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-server
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-server
+    spec:
+      containers:
+        - name: server
+          image: "{{ .Values.image.repository }}:server-{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.server.port }}
+          {{- include "saga-orchestrator.envFrom" . | nindent 10 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.server.port }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.server.port }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}

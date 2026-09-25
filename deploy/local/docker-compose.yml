@@ -1,0 +1,345 @@
+# Local dev/demo stack for all 4 FIAP X microservices (upload-service,
+# processing-service, notification-service, saga-orchestrator) plus their
+# infrastructure: 4x Postgres, RabbitMQ, MinIO (S3-compatible storage for
+# raw videos + generated zips), Mailhog (SMTP sink + web UI for the
+# notification-service's emails).
+#
+# All app services use `restart: unless-stopped` — on first boot they can
+# race RabbitMQ's healthcheck (which reports healthy slightly before the
+# AMQP listener is fully ready to accept connections) and exit once; the
+# restart policy recovers automatically within a few seconds. The same
+# applies to MinIO readiness for any service doing S3 I/O on startup.
+#
+# Prerequisite: clone the 3 sibling repos next to this one (see README.md
+# in this directory for the exact layout). Their Dockerfiles/TARGET build
+# args are assumed to follow the same convention as this repo's own
+# Dockerfile (ARG TARGET selects cmd/server, cmd/worker or
+# cmd/outbox-dispatcher); if a sibling repo's actual convention differs,
+# update that service's `build:` block accordingly.
+name: fiapx-hackathon-local
+
+networks:
+  fiapx-net: {}
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports: ["5672:5672", "15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [fiapx-net]
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [fiapx-net]
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb -p local/fiapx-videos &&
+      exit 0"
+    networks: [fiapx-net]
+    restart: "no"
+
+  mailhog:
+    image: mailhog/mailhog
+    ports: ["8025:8025"]
+    networks: [fiapx-net]
+
+  upload-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: upload_service
+      POSTGRES_USER: upload
+      POSTGRES_PASSWORD: upload
+    ports: ["5441:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U upload -d upload_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [fiapx-net]
+
+  processing-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: processing_service
+      POSTGRES_USER: processing
+      POSTGRES_PASSWORD: processing
+    ports: ["5442:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U processing -d processing_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [fiapx-net]
+
+  notification-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: notification_service
+      POSTGRES_USER: notification
+      POSTGRES_PASSWORD: notification
+    ports: ["5443:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notification -d notification_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [fiapx-net]
+
+  saga-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: saga_orchestrator
+      POSTGRES_USER: saga
+      POSTGRES_PASSWORD: saga
+    ports: ["5444:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saga -d saga_orchestrator"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [fiapx-net]
+
+  upload-service:
+    build:
+      context: ../../../fiapx-video-upload-service
+      args:
+        TARGET: server
+    depends_on:
+      upload-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      UPLOAD_DB_DSN: postgres://upload:upload@upload-postgres:5432/upload_service?sslmode=disable
+      UPLOAD_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      UPLOAD_PORT: "8081"
+      UPLOAD_JWT_SECRET: local-dev-secret-change-me
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: fiapx-videos
+      MINIO_USE_SSL: "false"
+    ports: ["8081:8081"]
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  upload-service-worker:
+    build:
+      context: ../../../fiapx-video-upload-service
+      args:
+        TARGET: worker
+    depends_on:
+      upload-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      UPLOAD_DB_DSN: postgres://upload:upload@upload-postgres:5432/upload_service?sslmode=disable
+      UPLOAD_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      UPLOAD_JWT_SECRET: local-dev-secret-change-me
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: fiapx-videos
+      MINIO_USE_SSL: "false"
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  upload-service-dispatcher:
+    build:
+      context: ../../../fiapx-video-upload-service
+      args:
+        TARGET: outbox-dispatcher
+    depends_on:
+      upload-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      UPLOAD_DB_DSN: postgres://upload:upload@upload-postgres:5432/upload_service?sslmode=disable
+      UPLOAD_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  processing-service:
+    build:
+      context: ../../../fiapx-video-processing-service
+      args:
+        TARGET: server
+    depends_on:
+      processing-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      PROCESSING_DB_DSN: postgres://processing:processing@processing-postgres:5432/processing_service?sslmode=disable
+      PROCESSING_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      PROCESSING_PORT: "8082"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: fiapx-videos
+      MINIO_USE_SSL: "false"
+    ports: ["8082:8082"]
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  processing-service-worker:
+    build:
+      context: ../../../fiapx-video-processing-service
+      args:
+        TARGET: worker
+    depends_on:
+      processing-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      PROCESSING_DB_DSN: postgres://processing:processing@processing-postgres:5432/processing_service?sslmode=disable
+      PROCESSING_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: fiapx-videos
+      MINIO_USE_SSL: "false"
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  processing-service-dispatcher:
+    build:
+      context: ../../../fiapx-video-processing-service
+      args:
+        TARGET: outbox-dispatcher
+    depends_on:
+      processing-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      PROCESSING_DB_DSN: postgres://processing:processing@processing-postgres:5432/processing_service?sslmode=disable
+      PROCESSING_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  notification-service:
+    build:
+      context: ../../../fiapx-notification-service
+      args:
+        TARGET: server
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      NOTIFICATION_DB_DSN: postgres://notification:notification@notification-postgres:5432/notification_service?sslmode=disable
+      NOTIFICATION_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      NOTIFICATION_PORT: "8083"
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_EMAIL: no-reply@fiapx.local
+    ports: ["8083:8083"]
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  notification-service-worker:
+    build:
+      context: ../../../fiapx-notification-service
+      args:
+        TARGET: worker
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      NOTIFICATION_DB_DSN: postgres://notification:notification@notification-postgres:5432/notification_service?sslmode=disable
+      NOTIFICATION_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_EMAIL: no-reply@fiapx.local
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  saga-orchestrator:
+    build:
+      context: ../..
+      args:
+        TARGET: server
+    depends_on:
+      saga-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SAGA_DB_DSN: postgres://saga:saga@saga-postgres:5432/saga_orchestrator?sslmode=disable
+      SAGA_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      SAGA_PORT: "8084"
+    ports: ["8084:8084"]
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  saga-orchestrator-worker:
+    build:
+      context: ../..
+      args:
+        TARGET: worker
+    depends_on:
+      saga-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SAGA_DB_DSN: postgres://saga:saga@saga-postgres:5432/saga_orchestrator?sslmode=disable
+      SAGA_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+    restart: unless-stopped
+    networks: [fiapx-net]
+
+  saga-orchestrator-dispatcher:
+    build:
+      context: ../..
+      args:
+        TARGET: outbox-dispatcher
+    depends_on:
+      saga-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SAGA_DB_DSN: postgres://saga:saga@saga-postgres:5432/saga_orchestrator?sslmode=disable
+      SAGA_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      SAGA_DISPATCH_INTERVAL_MS: "500"
+    restart: unless-stopped
+    networks: [fiapx-net]

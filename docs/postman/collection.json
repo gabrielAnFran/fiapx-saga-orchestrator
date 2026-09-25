@@ -1,0 +1,39 @@
+{
+  "info": {
+    "name": "FIAPX Saga Orchestrator",
+    "description": "Debug endpoint for the saga-orchestrator. Prerequisite: local stack running via `docker compose -f deploy/local/docker-compose.yml up --build` (see that directory's README). Port: 8084.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "saga_base", "value": "http://localhost:8084/api/v1" },
+    { "key": "video_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "GET /sagas/:video_id",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{saga_base}}/sagas/{{video_id}}",
+          "host": ["{{saga_base}}"],
+          "path": ["sagas", "{{video_id}}"]
+        },
+        "description": "Returns the saga instance coordinating this video's pipeline plus its full saga_history trail."
+      }
+    },
+    {
+      "name": "GET /healthz",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "http://localhost:8084/healthz", "host": ["http://localhost:8084"], "path": ["healthz"] }
+      }
+    },
+    {
+      "name": "GET /readyz",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "http://localhost:8084/readyz", "host": ["http://localhost:8084"], "path": ["readyz"] }
+      }
+    }
+  ]
+}

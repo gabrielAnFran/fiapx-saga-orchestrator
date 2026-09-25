@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fiapx.local/events/VideoStatusFailedCommand.schema.json",
+  "title": "VideoStatusFailedCommand",
+  "type": "object",
+  "required": ["event_id","event_name","event_version","occurred_at","correlation_id","saga_id","payload"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_name": { "const": "video.status.failed" },
+    "event_version": { "type": "integer", "minimum": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string" },
+    "saga_id": { "type": "string", "format": "uuid" },
+    "payload": {
+      "type": "object",
+      "required": ["video_id","error_code","error_message","failed_at"],
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "error_code": { "type": "string" },
+        "error_message": { "type": "string" },
+        "failed_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

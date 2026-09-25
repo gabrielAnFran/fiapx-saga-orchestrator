@@ -1,0 +1,35 @@
+image:
+  repository: fiapx-saga-orchestrator
+  tag: latest
+  pullPolicy: IfNotPresent
+
+server:
+  replicaCount: 1
+  port: 8084
+  resources: {}
+
+worker:
+  replicaCount: 1
+  resources: {}
+
+dispatcher:
+  replicaCount: 1
+  resources: {}
+
+service:
+  type: ClusterIP
+  port: 8084
+
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 75
+
+config:
+  SAGA_PORT: "8084"
+  SAGA_DISPATCH_INTERVAL_MS: "500"
+
+secret:
+  SAGA_DB_DSN: "postgres://saga:saga@saga-postgres:5432/saga_orchestrator?sslmode=disable"
+  SAGA_AMQP_URL: "amqp://guest:guest@rabbitmq:5672/"
