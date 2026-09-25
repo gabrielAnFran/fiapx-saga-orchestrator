@@ -251,7 +251,7 @@ services:
 
   notification-service:
     build:
-      context: ../../../fiapx-notification-service
+      context: ../../../fiapx-video-notification-service
       args:
         TARGET: server
     depends_on:
@@ -274,7 +274,7 @@ services:
 
   notification-service-worker:
     build:
-      context: ../../../fiapx-notification-service
+      context: ../../../fiapx-video-notification-service
       args:
         TARGET: worker
     depends_on:
