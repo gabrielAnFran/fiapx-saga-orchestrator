@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: go vet
+        run: go vet ./...
+      - name: gofmt
+        run: |
+          fmt_out="$(gofmt -l .)"
+          if [ -n "$fmt_out" ]; then
+            echo "The following files are not gofmt'd:"
+            echo "$fmt_out"
+            exit 1
+          fi
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: go test with coverage (unit + testcontainers integration)
+        run: go test -tags=integration ./... -coverpkg=./... -coverprofile=coverage.out
+      - name: print coverage
+        run: go tool cover -func=coverage.out | tail -1
+      - name: upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker build (server)
+        run: docker build --build-arg TARGET=server -t fiapx-saga-orchestrator:server .
+      - name: docker build (worker)
+        run: docker build --build-arg TARGET=worker -t fiapx-saga-orchestrator:worker .
+      - name: docker build (outbox-dispatcher)
+        run: docker build --build-arg TARGET=outbox-dispatcher -t fiapx-saga-orchestrator:outbox-dispatcher .
+
+  # Ephemeral, self-hosted SonarQube for the duration of the job — no
+  # external account/token needed. Community Edition doesn't ship Go-specific
+  # rules (that's a paid-tier language), so this mainly validates that the
+  # quality-gate mechanism itself is wired end-to-end; golangci-lint in the
+  # `lint` job above is the actual Go-native quality gate blocking merges.
+  # Informational only (not a required branch-protection check) given the
+  # extra startup time/flakiness of a fresh SonarQube instance in CI.
+  sonar:
+    runs-on: ubuntu-latest
+    needs: [test]
+    services:
+      sonarqube:
+        image: sonarqube:community
+        ports:
+          - 9000:9000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: go test with coverage (for sonar to reference)
+        run: go test ./... -coverprofile=coverage.out || true
+      - name: wait for SonarQube to be ready
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl -s http://localhost:9000/api/system/status | grep -o '"status":"[A-Z]*"' || true)
+            echo "sonarqube status: $status"
+            [ "$status" = '"status":"UP"' ] && exit 0
+            sleep 5
+          done
+          echo "SonarQube did not become ready in time" >&2
+          exit 1
+      - name: change default admin password and generate a CI token
+        run: |
+          set -eu
+          new_pass='CiTempPass1234!'
+          http_code=$(curl -s -o /tmp/change_pw.json -w '%{http_code}' -u admin:admin -X POST "http://localhost:9000/api/users/change_password" \
+            --data-urlencode "login=admin" \
+            --data-urlencode "previousPassword=admin" \
+            --data-urlencode "password=$new_pass")
+          echo "change_password HTTP $http_code"
+          cat /tmp/change_pw.json; echo
+          if [ "$http_code" != "204" ] && [ "$http_code" != "200" ]; then
+            echo "::error::change_password failed with HTTP $http_code" >&2
+            exit 1
+          fi
+          token_http_code=$(curl -s -o /tmp/token.json -w '%{http_code}' -u "admin:$new_pass" -X POST "http://localhost:9000/api/user_tokens/generate?name=ci-$(date +%s)")
+          echo "generate token HTTP $token_http_code"
+          if [ "$token_http_code" != "200" ]; then
+            cat /tmp/token.json; echo
+            echo "::error::user_tokens/generate failed with HTTP $token_http_code" >&2
+            exit 1
+          fi
+          token=$(grep -o '"token":"[^"]*"' /tmp/token.json | cut -d'"' -f4)
+          echo "::add-mask::$token"
+          echo "SONAR_TOKEN=$token" >> "$GITHUB_ENV"
+      - name: run sonar-scanner
+        run: |
+          docker run --rm --network=host -v "$PWD:/usr/src" sonarsource/sonar-scanner-cli:latest \
+            sonar-scanner \
+              -Dsonar.projectKey=fiapx-saga-orchestrator \
+              -Dsonar.sources=/usr/src \
+              -Dsonar.host.url=http://localhost:9000 \
+              -Dsonar.token="$SONAR_TOKEN" \
+              -Dsonar.go.coverage.reportPaths=/usr/src/coverage.out
+      - name: check quality gate
+        run: |
+          sleep 5
+          curl -s -u "$SONAR_TOKEN:" "http://localhost:9000/api/qualitygates/project_status?projectKey=fiapx-saga-orchestrator" | tee /tmp/gate.json
+          echo
+          echo "Quality gate status: $(grep -o '"status":"[A-Z]*"' /tmp/gate.json | head -1)"

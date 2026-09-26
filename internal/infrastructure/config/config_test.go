@@ -16,7 +16,7 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.DBDSN != "host=localhost user=postgres password=postgres dbname=saga_orchestrator port=5432 sslmode=disable" {
 		t.Errorf("unexpected default DBDSN: %q", cfg.DBDSN)
 	}
-	if cfg.AMQPURL != "amqp://guest:guest@localhost:5672/" {
+	if cfg.AMQPURL != "amqp://guest:guest@localhost:5672/" { //nolint:gosec // default RabbitMQ dev credentials, not a real secret
 		t.Errorf("unexpected default AMQPURL: %q", cfg.AMQPURL)
 	}
 	if cfg.DispatchIntervalMS != 500 {
