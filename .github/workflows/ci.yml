@@ -36,9 +36,16 @@ jobs:
         with:
           go-version: "1.26"
       - name: go test with coverage (unit + testcontainers integration)
-        run: go test -tags=integration ./... -coverpkg=./... -coverprofile=coverage.out
+        run: |
+          PKGS=$(go list ./... | grep -v '/cmd/' | tr '\n' ',' | sed 's/,$//')
+          go test -tags=integration ./... -coverpkg="$PKGS" -coverprofile=coverage.out
       - name: print coverage
         run: go tool cover -func=coverage.out | tail -1
+      - name: enforce coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | tr -d '%')
+          echo "coverage: ${COVERAGE}%"
+          awk -v cov="$COVERAGE" -v min=80 'BEGIN { if (cov+0 < min) { print "coverage " cov "% is below the " min "% threshold"; exit 1 } else { print "coverage " cov "% meets the " min "% threshold" } }'
       - name: upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
